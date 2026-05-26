@@ -93,9 +93,24 @@ class Settings:
             else "/opt/miband-tracker/data"
         )
         data_dir = Path(os.environ.get("DATA_DIR", _default_data))
-        allowed_user_id = parse_single_user_id(
-            os.environ.get("TELEGRAM_ALLOWED_USER_ID", ""), required=False
-        )
+        
+        # Получаем значение TELEGRAM_ALLOWED_USER_ID из окружения
+        raw_allowed_id = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
+        
+        # Если в строке несколько ID через запятую, берем первый как основного владельца
+        # и добавляем остальные в список разрешенных ID автоматически.
+        allowed_user_id = None
+        extra_allowed_ids = []
+        if raw_allowed_id:
+            parts = [p.strip() for p in raw_allowed_id.split(",") if p.strip()]
+            if parts:
+                try:
+                    allowed_user_id = int(parts[0])
+                    if len(parts) > 1:
+                        extra_allowed_ids = [int(p) for p in parts[1:]]
+                except ValueError:
+                    pass
+
         # Если ID не задан в env, пробуем загрузить из файла allowed_user.id
         allowed_user_file = data_dir / "allowed_user.id"
         if allowed_user_id is None and allowed_user_file.exists():
@@ -107,6 +122,13 @@ class Settings:
         bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
         if require_bot and not bot_token:
             raise ConfigError("TELEGRAM_BOT_TOKEN не задан")
+            
+        # Объединяем ID из TELEGRAM_ALLOWED_IDS и дополнительные из TELEGRAM_ALLOWED_USER_ID
+        telegram_allowed_ids = _env_list_int("TELEGRAM_ALLOWED_IDS")
+        for eid in extra_allowed_ids:
+            if eid not in telegram_allowed_ids:
+                telegram_allowed_ids.append(eid)
+
         return cls(
             data_dir=data_dir,
             db_path=Path(os.environ.get("DB_PATH", str(data_dir / "miband.db"))),
@@ -123,7 +145,7 @@ class Settings:
             query_duration=_env_int("QUERY_DURATION", 30, min_value=1),
             enable_fds_sleep_details=_env_bool("ENABLE_FDS_SLEEP_DETAILS", default=True),
             mi_region=os.environ.get("MI_REGION", "ru").strip().lower(),
-            telegram_allowed_ids=_env_list_int("TELEGRAM_ALLOWED_IDS"),
+            telegram_allowed_ids=telegram_allowed_ids,
             is_public=_env_bool("IS_PUBLIC", default=False),
         )
 
