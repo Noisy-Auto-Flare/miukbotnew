@@ -2,6 +2,7 @@ services:
   tracker:
     container_name: miband-tracker
     build: .
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     restart: unless-stopped
     volumes:
       - ./data:/opt/miband-tracker/data
@@ -19,6 +20,7 @@ services:
   fitness-bot:
     container_name: miband-fitness-bot
     build: .
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     restart: unless-stopped
     command: ["python", "-u", "fitness_bot.py"]
     volumes:

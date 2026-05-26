@@ -41,6 +41,13 @@ if [ "$install_mode" = "2" ]; then
     fi
     ok "Docker готов"
     DOCKER_MODE=true
+
+    # Создаем папку data заранее, чтобы Docker не создал ее от root
+    mkdir -p data
+    if [ "$(id -u)" -ne 1000 ]; then
+        echo -e "  ${YELLOW}!${NC} Ваш UID не 1000. Если возникнут ошибки Permission denied,"
+        echo -e "    выполните: sudo chown -R 1000:1000 data"
+    fi
 else
     PYTHON_CMD=""
     for cmd in python3.13 python3.12 python3.11 python3 python; do
