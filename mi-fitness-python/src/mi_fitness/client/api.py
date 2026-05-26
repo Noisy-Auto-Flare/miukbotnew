@@ -65,16 +65,25 @@ class MiHealthClient:
         """
         self.auth = auth
         self.base_url = base_url.rstrip("/")
+        self.region_tag = region_tag
         self._http = create_api_http(region_tag=region_tag)
         self._refresh_lock = asyncio.Lock()
 
     @classmethod
-    def from_token(cls, path: Path | str, **kwargs: Any) -> Self:
+    def from_token(
+        cls,
+        path: Path | str,
+        base_url: str = HEALTH_API_BASE,
+        region_tag: str = REGION_TAG,
+        **kwargs: Any,
+    ) -> Self:
         """从 token 文件一步创建客户端。
 
         Args:
             path: token 文件路径。
-            **kwargs: 传递给 MiHealthClient 的额外参数（如 base_url）。
+            base_url: API 基础 URL。
+            region_tag: 区域标签。
+            **kwargs: 传递给 MiHealthClient 的额外参数。
 
         Returns:
             已就绪的 MiHealthClient 实例。
@@ -83,7 +92,7 @@ class MiHealthClient:
             AuthError: 文件不存在或格式错误。
         """
         auth = XiaomiAuth.from_token(path)
-        return cls(auth, **kwargs)
+        return cls(auth, base_url=base_url, region_tag=region_tag, **kwargs)
 
     def __repr__(self) -> str:
         uid = self.auth.token.user_id or "N/A"

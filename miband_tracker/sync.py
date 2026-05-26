@@ -170,7 +170,7 @@ async def run_sync_for_user(
                 from mi_fitness.auth.sts import sts_exchange
 
                 log("Forcing STS exchange with clientSign to obtain a full serviceToken...")
-                await sts_exchange(client.auth._ensure_http(), client.auth.token)
+                await sts_exchange(client.auth._ensure_http(), client.auth.token, region=region)
                 save_auth_token(client.auth.token, token_path)
 
                 steps_list = await client.get_steps(relative_uid, days=settings.query_duration)

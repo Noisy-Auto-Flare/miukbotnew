@@ -106,7 +106,7 @@ class Settings:
             telegram_bot_token=bot_token,
             telegram_allowed_user_id=allowed_user_id,
             sync_interval=_env_int("SYNC_INTERVAL", 900, min_value=0),
-            query_duration=_env_int("QUERY_DURATION", 2, min_value=1),
+            query_duration=_env_int("QUERY_DURATION", 30, min_value=1),
             enable_fds_sleep_details=_env_bool("ENABLE_FDS_SLEEP_DETAILS", default=True),
             mi_region=os.environ.get("MI_REGION", "ru").strip().lower(),
         )

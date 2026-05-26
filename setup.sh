@@ -92,7 +92,7 @@ if [ ! -f secrets.env ]; then
         echo "TELEGRAM_BOT_TOKEN=$bot_token"
         echo "TELEGRAM_ALLOWED_USER_ID="
         echo "SYNC_INTERVAL=900"
-        echo "QUERY_DURATION=2"
+        echo "QUERY_DURATION=30"
         echo "ENABLE_FDS_SLEEP_DETAILS=true"
     } > secrets.env
     ok "Конфигурация сохранена"

@@ -14,7 +14,7 @@ services:
       - BOT_STATE_DB_PATH=/opt/miband-tracker/data/fitness_bot_state.db
       - DATA_DIR=/opt/miband-tracker/data
       - SYNC_INTERVAL=900
-      - QUERY_DURATION=2
+      - QUERY_DURATION=30
 
 
   fitness-bot:

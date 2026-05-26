@@ -7,12 +7,16 @@ import time
 
 from loguru import logger
 
-from mi_fitness.const import STS_HEALTH_URL
+from mi_fitness.const import REGION_TAG, STS_HEALTH_URL, get_sts_ur
 from mi_fitness.http import RetryAsyncClient
 from mi_fitness.models import AuthToken
 
 
-async def sts_exchange(http: RetryAsyncClient, token: AuthToken) -> None:
+async def sts_exchange(
+    http: RetryAsyncClient,
+    token: AuthToken,
+    region: str = REGION_TAG,
+) -> None:
     """STS 安全令牌交换。
 
     使用 deviceId 完成 STS 验证。此步骤非致命，失败仅打印警告。
@@ -20,7 +24,10 @@ async def sts_exchange(http: RetryAsyncClient, token: AuthToken) -> None:
     Args:
         http: HTTP 客户端。
         token: 已有 device_id 的 AuthToken。
+        region: 区域（如 ru, de, cn）。
     """
+    p_ur = get_sts_ur(region)
+    logger.debug("Запуск STS обмена для региона: {} (p_ur: {})", region, p_ur)
     params = {
         "d": token.device_id,
         "ticket": "0",
@@ -28,7 +35,7 @@ async def sts_exchange(http: RetryAsyncClient, token: AuthToken) -> None:
         "p_ts": str(int(time.time() * 1000)),
         "fid": "0",
         "p_lm": "2",
-        "p_ur": "CN",
+        "p_ur": p_ur,
         "sid": "hlth.io.mi.com",
     }
     client_sign = os.environ.get("MI_CLIENT_SIGN")

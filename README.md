@@ -104,7 +104,7 @@ Docker Compose запускает два процесса:
 | `TELEGRAM_BOT_TOKEN`       | —            | Token Telegram-бота                     |
 | `TELEGRAM_ALLOWED_USER_ID` | —            | Разрешённый user id (оставьте пустым для автопривязки) |
 | `SYNC_INTERVAL`            | `900`        | Интервал фоновой синхронизации, секунды |
-| `QUERY_DURATION`           | `2`          | Глубина запроса при sync, дней          |
+| `QUERY_DURATION`           | `30`         | Глубина запроса при sync, дней          |
 | `ENABLE_FDS_SLEEP_DETAILS` | `true`       | Загружать детальные ночные данные FDS   |
 
 Пути к базе и статусу заданы в `compose.yaml`. При запуске без Docker

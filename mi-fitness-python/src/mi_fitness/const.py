@@ -29,6 +29,14 @@ def get_health_api_base(region: str) -> str:
     return f"https://{region}.hlth.io.mi.com"
 
 
+def get_sts_ur(region: str) -> str:
+    """获取 STS 请求中的 p_ur 参数。"""
+    region = region.lower()
+    if region == "de":
+        return "EU"
+    return region.upper()
+
+
 _REGION = (os.environ.get("MI_REGION") or "ru").lower()
 REGION_TAG = _REGION
 HEALTH_API_BASE = get_health_api_base(_REGION)
