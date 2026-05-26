@@ -64,9 +64,23 @@ class Settings:
     query_duration: int
     enable_fds_sleep_details: bool
     mi_region: str
+    telegram_allowed_ids: list[int]
+    is_public: bool
 
     @classmethod
     def from_env(cls, *, require_bot: bool = False) -> Settings:
+        def _env_list_int(key: str) -> list[int]:
+            val = os.environ.get(key, "")
+            if not val:
+                return []
+            ids = []
+            for item in val.split(","):
+                try:
+                    ids.append(int(item.strip()))
+                except ValueError:
+                    continue
+            return ids
+
         # Load local secrets.env (if present) before reading env vars.
         # This makes Python the single source of truth on all platforms.
         _load_local_env()
@@ -109,6 +123,8 @@ class Settings:
             query_duration=_env_int("QUERY_DURATION", 30, min_value=1),
             enable_fds_sleep_details=_env_bool("ENABLE_FDS_SLEEP_DETAILS", default=True),
             mi_region=os.environ.get("MI_REGION", "ru").strip().lower(),
+            telegram_allowed_ids=_env_list_int("TELEGRAM_ALLOWED_IDS"),
+            is_public=_env_bool("IS_PUBLIC", default=False),
         )
 
     def require_user_id(self, user_id: int | None = None) -> int:

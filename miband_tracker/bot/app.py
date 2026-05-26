@@ -10,6 +10,7 @@ import logging
 import os
 import sqlite3
 import sys
+import time
 from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -89,6 +90,16 @@ def is_allowed(update: Update) -> bool:
     uid = update.effective_user.id if update.effective_user else None
     if uid is None:
         return False
+
+    # Если бот публичный — разрешаем всем
+    if SETTINGS.is_public:
+        return True
+
+    # Если ID пользователя в списке разрешенных — разрешаем
+    if SETTINGS.telegram_allowed_ids and uid in SETTINGS.telegram_allowed_ids:
+        return True
+
+    # Логика привязки первого пользователя (владельца)
     if ALLOWED_USER_ID is None:
         ALLOWED_USER_ID = uid
         try:
@@ -99,6 +110,8 @@ def is_allowed(update: Update) -> bool:
         except Exception as e:
             logger.error("Не удалось сохранить ID владельца в файл: %s", e)
         return True
+
+    # Разрешаем владельцу
     return uid == ALLOWED_USER_ID
 
 
@@ -691,9 +704,8 @@ def main_menu_text() -> str:
     hr = latest_hr()
     spo2 = latest_spo2()
     stress = latest_stress()
+    status = storage.read_status_file(SETTINGS, ALLOWED_USER_ID)
     lines = []
-
-
 
     # 1. Шаги
     if steps:
@@ -710,12 +722,26 @@ def main_menu_text() -> str:
     if sleep:
         total_sleep = sleep_total(sleep)
         try:
-            start_str = format_epoch(sleep["start_time"], False)
-            end_str = format_epoch(sleep["end_time"], False)
-            time_arrow = f"{start_str}→{end_str} · "
+            start_ts = int(sleep["start_time"])
+            end_ts = int(sleep["end_time"])
+            last_sync_ts = status.get("last_sync", 0) if status else 0
+
+            # Если время окончания сна совпадает с временем синхронизации (или очень близко),
+            # значит пользователь всё еще спит, и браслет просто отдал текущий срез.
+            is_sleeping_now = last_sync_ts > 0 and abs(end_ts - last_sync_ts) < 600 # 10 минут
+
+            start_str = format_epoch(start_ts, False)
+            if is_sleeping_now:
+                # Считаем длительность от начала до текущего момента
+                current_duration = max(0, int((time.time() - start_ts) / 60))
+                end_str = "..."
+                duration_str = format_minutes(current_duration)
+                lines.append(f"😴 {start_str}→{end_str} · <b>Спит {duration_str}</b> 💤")
+            else:
+                end_str = format_epoch(end_ts, False)
+                lines.append(f"😴 {start_str}→{end_str} · <b>{format_minutes(total_sleep)}</b>")
         except Exception:
-            time_arrow = ""
-        lines.append(f"😴 {time_arrow}<b>{format_minutes(total_sleep)}</b>")
+            lines.append(f"😴 <b>{format_minutes(total_sleep)}</b>")
     else:
         lines.append("😴 Сон н/д")
 
