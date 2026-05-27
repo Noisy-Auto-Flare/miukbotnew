@@ -56,6 +56,7 @@ RELATIVES_GET_APPLIED_SHARED_TYPES_PATH = "/app/v1/relatives/get_applied_shared_
 RELATIVES_GET_FAMILY_MEMBER_PATH = "/app/v1/relatives/get_family_member"
 RELATIVES_GET_INVITE_ID_PATH = "/app/v1/relatives/get_invite_unique_id"
 RELATIVES_GET_TOPIC_SUBS_PATH = "/app/v1/relatives/get_topic_subscriptions"
+ECO_API_PROXY_PATH = "/app/v1/eco/api_proxy"
 # endregion
 
 # region 消息 API 路径

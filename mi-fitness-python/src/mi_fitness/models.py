@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from enum import IntEnum
 from functools import cached_property
-from typing import Any, TypeVar
+from typing import Any, Optional, TypeVar, Union
 
 from pydantic import AliasChoices, BaseModel, Field, ValidationError, field_validator
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
+UTC = timezone.utc
 
-def _ts_to_datetime(ts: int) -> datetime | None:
+
+def _ts_to_datetime(ts: int) -> Optional[datetime]:
     """将秒级时间戳转为 UTC datetime，0 返回 None。"""
     if ts <= 0:
         return None
@@ -43,7 +45,7 @@ def _coerce_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def _coerce_optional_int(value: Any) -> int | None:
+def _coerce_optional_int(value: Any) -> Optional[int]:
     """尽力将接口返回值转为整数，失败时返回 None。"""
     try:
         return int(value)
@@ -87,7 +89,7 @@ def _parse_model_list(value: Any, model: type[_ModelT]) -> list[_ModelT]:
     return parsed
 
 
-def _parse_model(value: Any, model: type[_ModelT]) -> _ModelT | None:
+def _parse_model(value: Any, model: type[_ModelT]) -> Optional[_ModelT]:
     """安全解析单个模型，失败时返回 None。"""
     try:
         return model.model_validate(value)
@@ -145,6 +147,23 @@ class AuthToken(BaseModel):
 # endregion
 
 
+# region 设备
+class Device(BaseModel):
+    """绑定的设备信息。"""
+
+    did: str = ""
+    name: str = ""
+    model: str = ""
+    mac: str = ""
+    status: int = 0
+    is_online: bool = Field(default=False, alias="isOnline")
+
+    model_config = {"populate_by_name": True}
+
+
+# endregion
+
+
 # region 亲友
 class FamilyMember(BaseModel):
     """亲友信息（来自 get_relative_list 响应）。
@@ -162,7 +181,7 @@ class FamilyMember(BaseModel):
     relative_note: str = ""
     relative_icon: str = ""
     latest_data_time: int = 0
-    latest_abnormal_record_time: int | None = 0
+    latest_abnormal_record_time: Optional[int] = 0
     source_tag: int = 0
 
     def __str__(self) -> str:
@@ -212,7 +231,7 @@ class HeartRateData(BaseModel):
     avg_rhr: int = 0
     max_hr: int = 0
     min_hr: int = 0
-    latest_hr: LatestHeartRate | None = None
+    latest_hr: Optional[LatestHeartRate] = None
     abnormal_hr_count: int = 0
     aerobic_hr_zone_duration: int = 0
     anaerobic_hr_zone_duration: int = 0
@@ -227,7 +246,7 @@ class HeartRateData(BaseModel):
         )
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -309,7 +328,7 @@ class SleepData(BaseModel):
         )
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -338,7 +357,7 @@ class StepData(BaseModel):
         return f"Steps({self.steps}步, {self.distance}m, {self.calories}cal)"
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -364,7 +383,7 @@ class WeightData(BaseModel):
         return f"Weight({self.weight}kg, BMI={self.bmi})"
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -388,14 +407,14 @@ class BloodPressureData(BaseModel):
     diastolic: int = Field(
         default=0, validation_alias=AliasChoices("diastolic", "diastolic_pressure")
     )
-    pulse: int | None = None
+    pulse: Optional[int] = None
 
     def __str__(self) -> str:
         base = f"BloodPressure({self.systolic}/{self.diastolic} mmHg)"
         return f"{base}, pulse={self.pulse}" if self.pulse is not None else base
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -412,7 +431,7 @@ class GoalMetric(IntEnum):
     INTENSITY = 4
 
     @classmethod
-    def from_field(cls, field: int) -> GoalMetric | None:
+    def from_field(cls, field: int) -> Optional[GoalMetric]:
         """将接口返回的 field 编号映射为已知目标类型。"""
         try:
             return cls(field)
@@ -448,11 +467,11 @@ class GoalItem(BaseModel):
     """
 
     field: int = 0
-    target_value: int | float = 0
-    achieved_value: int | float = 0
+    target_value: Union[int, float] = 0
+    achieved_value: Union[int, float] = 0
 
     @property
-    def metric(self) -> GoalMetric | None:
+    def metric(self) -> Optional[GoalMetric]:
         """已知目标类型；未知 field 返回 None。"""
         return GoalMetric.from_field(self.field)
 
@@ -510,27 +529,27 @@ class GoalData(BaseModel):
         """当前响应中未识别的目标项。"""
         return [item for item in self.goal_items if item.metric is None]
 
-    def get_item(self, metric: GoalMetric | int) -> GoalItem | None:
+    def get_item(self, metric: Union[GoalMetric, int]) -> Optional[GoalItem]:
         """按目标类型读取对应条目。"""
         return self.items_by_field.get(int(metric))
 
     @property
-    def steps_goal(self) -> GoalItem | None:
+    def steps_goal(self) -> Optional[GoalItem]:
         """步数目标。"""
         return self.get_item(GoalMetric.STEPS)
 
     @property
-    def calories_goal(self) -> GoalItem | None:
+    def calories_goal(self) -> Optional[GoalItem]:
         """卡路里目标。"""
         return self.get_item(GoalMetric.CALORIES)
 
     @property
-    def intensity_goal(self) -> GoalItem | None:
+    def intensity_goal(self) -> Optional[GoalItem]:
         """中高强度活动目标。"""
         return self.get_item(GoalMetric.INTENSITY)
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -552,7 +571,7 @@ class CaloriesData(BaseModel):
         return f"Calories({self.calories} cal, goal={self.goal})"
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -572,7 +591,7 @@ class ValidStandData(BaseModel):
         return f"ValidStand({self.count})"
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -592,7 +611,7 @@ class IntensityData(BaseModel):
         return f"Intensity({self.duration} min)"
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -612,7 +631,7 @@ class Spo2Data(BaseModel):
         return f"Spo2({self.spo2}%)"
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -634,7 +653,7 @@ class Spo2SummaryData(BaseModel):
     max_spo2: int = 0
     min_spo2: int = 0
     lack_spo2_count: int = 0
-    latest_spo2: Spo2Data | None = None
+    latest_spo2: Optional[Spo2Data] = None
 
     def __str__(self) -> str:
         return (
@@ -643,7 +662,7 @@ class Spo2SummaryData(BaseModel):
         )
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """数据时间（UTC datetime）。"""
         return _ts_to_datetime(self.time)
 
@@ -685,11 +704,11 @@ class LatestDataItem(BaseModel):
 
     time: int = 0
     key: str = ""
-    value: str | int | float = ""
+    value: Union[str, int, float] = ""
 
     @field_validator("value", mode="before")
     @classmethod
-    def _normalize_value(cls, value: Any) -> str | int | float:
+    def _normalize_value(cls, value: Any) -> Union[str, int, float]:
         """确保 dict/list 形式的 value 也能被统一解析。"""
         if isinstance(value, (dict, list)):
             return json.dumps(value, ensure_ascii=False)
@@ -697,11 +716,11 @@ class LatestDataItem(BaseModel):
             return value
         return ""
 
-    def parse_value(self) -> dict[str, Any] | int | float:
+    def parse_value(self) -> Union[dict[str, Any], int, float]:
         """将 value 字段从 JSON 字符串解析为字典。
 
         Returns:
-            解析后的字典或原始数值。
+            解析后的字典 or 原始数值。
         """
         if isinstance(self.value, (int, float)):
             return self.value
@@ -718,7 +737,7 @@ class LatestDataItem(BaseModel):
         parsed = self.parse_value()
         return parsed if isinstance(parsed, dict) else {}
 
-    def as_goal(self) -> GoalData | None:
+    def as_goal(self) -> Optional[GoalData]:
         """解析为目标完成数据。"""
         data = self._parse_dict_value()
         if not data:
@@ -726,7 +745,7 @@ class LatestDataItem(BaseModel):
         data.setdefault("time", self.time)
         return _parse_model(data, GoalData)
 
-    def as_heart_rate(self) -> LatestHeartRate | None:
+    def as_heart_rate(self) -> Optional[LatestHeartRate]:
         """解析为最新一次心率采样。"""
         data = self._parse_dict_value()
         if not data:
@@ -734,7 +753,7 @@ class LatestDataItem(BaseModel):
         data.setdefault("time", self.time)
         return _parse_model(data, LatestHeartRate)
 
-    def as_sleep(self) -> SleepData | None:
+    def as_sleep(self) -> Optional[SleepData]:
         """解析为最新睡眠摘要。"""
         data = self._parse_dict_value()
         if not data:
@@ -744,7 +763,7 @@ class LatestDataItem(BaseModel):
         data["segment_details"] = _parse_model_list(segments, SleepSegment)
         return _parse_model(data, SleepData)
 
-    def as_steps(self) -> StepData | None:
+    def as_steps(self) -> Optional[StepData]:
         """解析为最新步数摘要。"""
         data = self._parse_dict_value()
         if not data:
@@ -752,7 +771,7 @@ class LatestDataItem(BaseModel):
         data.setdefault("time", self.time)
         return _parse_model(data, StepData)
 
-    def as_weight(self) -> WeightData | None:
+    def as_weight(self) -> Optional[WeightData]:
         """解析为最新体重。"""
         data = self._parse_dict_value()
         if not data:
@@ -760,7 +779,7 @@ class LatestDataItem(BaseModel):
         data.setdefault("time", self.time)
         return _parse_model(data, WeightData)
 
-    def as_blood_pressure(self) -> BloodPressureData | None:
+    def as_blood_pressure(self) -> Optional[BloodPressureData]:
         """解析为最新血压。"""
         data = self._parse_dict_value()
         if not data:
@@ -768,7 +787,7 @@ class LatestDataItem(BaseModel):
         data.setdefault("time", self.time)
         return _parse_model(data, BloodPressureData)
 
-    def as_calories(self) -> CaloriesData | None:
+    def as_calories(self) -> Optional[CaloriesData]:
         """解析为最新卡路里摘要。"""
         data = self._parse_dict_value()
         if not data:
@@ -776,7 +795,7 @@ class LatestDataItem(BaseModel):
         data.setdefault("time", self.time)
         return _parse_model(data, CaloriesData)
 
-    def as_valid_stand(self) -> ValidStandData | None:
+    def as_valid_stand(self) -> Optional[ValidStandData]:
         """解析为最新有效站立统计。"""
         data = self._parse_dict_value()
         if not data:
@@ -784,7 +803,7 @@ class LatestDataItem(BaseModel):
         data.setdefault("time", self.time)
         return _parse_model(data, ValidStandData)
 
-    def as_intensity(self) -> IntensityData | None:
+    def as_intensity(self) -> Optional[IntensityData]:
         """解析为最新中高强度活动时长。"""
         data = self._parse_dict_value()
         if not data:
@@ -792,7 +811,7 @@ class LatestDataItem(BaseModel):
         data.setdefault("time", self.time)
         return _parse_model(data, IntensityData)
 
-    def as_spo2(self) -> Spo2Data | None:
+    def as_spo2(self) -> Optional[Spo2Data]:
         """解析为最新血氧。"""
         data = self._parse_dict_value()
         if not data:
@@ -934,9 +953,9 @@ class DailySummary(BaseModel):
 
     date: str = ""
     relative_uid: int = 0
-    heart_rate: HeartRateData | None = None
-    sleep: SleepData | None = None
-    steps: StepData | None = None
+    heart_rate: Optional[HeartRateData] = None
+    sleep: Optional[SleepData] = None
+    steps: Optional[StepData] = None
 
     def __str__(self) -> str:
         parts = [f"DailySummary({self.date}, UID={self.relative_uid}"]
@@ -957,21 +976,21 @@ class LatestDataSnapshot(BaseModel):
     """最新健康快照。
 
     将 get_latest_data 的异构 data_list 收敛为固定字段，未知 key 或解析失败的 payload
-    保留到 extras，避免上层因为单条脏数据失去整份快照。
+    保留到 extras，避免上层因为单条脏数据失去整份快照.
     """
 
     updated_time: int = 0
-    goal: GoalData | None = None
-    heart_rate: LatestHeartRate | None = None
-    sleep: SleepData | None = None
-    blood_pressure: BloodPressureData | None = None
-    steps: StepData | None = None
-    calories: CaloriesData | None = None
-    valid_stand: ValidStandData | None = None
-    intensity: IntensityData | None = None
-    weight: WeightData | None = None
-    spo2: Spo2Data | None = None
-    extras: dict[str, dict[str, Any] | int | float] = Field(default_factory=dict)
+    goal: Optional[GoalData] = None
+    heart_rate: Optional[LatestHeartRate] = None
+    sleep: Optional[SleepData] = None
+    blood_pressure: Optional[BloodPressureData] = None
+    steps: Optional[StepData] = None
+    calories: Optional[CaloriesData] = None
+    valid_stand: Optional[ValidStandData] = None
+    intensity: Optional[IntensityData] = None
+    weight: Optional[WeightData] = None
+    spo2: Optional[Spo2Data] = None
+    extras: dict[str, Union[dict[str, Any], int, float]] = Field(default_factory=dict)
 
     @classmethod
     def from_items(
@@ -982,7 +1001,7 @@ class LatestDataSnapshot(BaseModel):
     ) -> LatestDataSnapshot:
         """从原始 data_list 构建类型化快照。"""
         payload: dict[str, Any] = {"updated_time": updated_time}
-        extras: dict[str, dict[str, Any] | int | float] = {}
+        extras: dict[str, Union[dict[str, Any], int, float]] = {}
         parsers = {
             "goal": LatestDataItem.as_goal,
             "heart_rate": LatestDataItem.as_heart_rate,
@@ -1018,7 +1037,7 @@ class LatestDataSnapshot(BaseModel):
         return f"LatestDataSnapshot({keys})"
 
     @property
-    def at(self) -> datetime | None:
+    def at(self) -> Optional[datetime]:
         """快照更新时间（UTC datetime）。"""
         return _ts_to_datetime(self.updated_time)
 

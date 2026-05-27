@@ -9,20 +9,21 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, TypeVar
 
 from mi_fitness.auth import XiaomiAuth
 from mi_fitness.client import data as _data
 from mi_fitness.client import messages as _msg
 from mi_fitness.client import relatives as _rel
 from mi_fitness.client.base import create_api_http, encrypted_request
-from mi_fitness.const import HEALTH_API_BASE, REGION_TAG
+from mi_fitness.const import ECO_API_PROXY_PATH, HEALTH_API_BASE, REGION_TAG
 from mi_fitness.exceptions import TokenExpiredError
 from mi_fitness.models import (
     AggregatedDataResponse,
     BloodPressureData,
     CaloriesData,
     DailySummary,
+    Device,
     FamilyMember,
     GoalData,
     HeartRateData,
@@ -76,7 +77,7 @@ class MiHealthClient:
         base_url: str = HEALTH_API_BASE,
         region_tag: str = REGION_TAG,
         **kwargs: Any,
-    ) -> Self:
+    ) -> MiHealthClient:
         """从 token 文件一步创建客户端。
 
         Args:
@@ -227,6 +228,23 @@ class MiHealthClient:
     ) -> dict[str, Any]:
         """获取亲友的消息订阅状态。"""
         return await _rel.get_topic_subscriptions(self, relative_uid, topics)
+
+    async def get_devices(self) -> list[Device]:
+        """获取当前用户绑定的设备列表。"""
+        import json
+
+        resp = await self._request(
+            "POST",
+            ECO_API_PROXY_PATH,
+            params={
+                "eco_api": "/bs/bind/devices",
+                "params": json.dumps({"page": 1, "pageSize": 50, "status": 1}),
+            },
+        )
+        result = resp.get("result", [])
+        if not isinstance(result, list):
+            return []
+        return [Device.model_validate(d) for d in result if isinstance(d, dict)]
 
     # endregion
 
@@ -440,7 +458,7 @@ class MiHealthClient:
         """关闭 HTTP 客户端。"""
         await self._http.aclose()
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> MiHealthClient:
         return self
 
     async def __aexit__(self, *args: object) -> None:

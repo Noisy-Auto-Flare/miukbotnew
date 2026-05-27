@@ -13,6 +13,8 @@ import httpx
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
+from mi_fitness.exceptions import APIError
+
 FDS_SLEEP_DAILY_TYPE = 8
 FDS_ALL_DAY_FILE_TYPE = 0
 TIMEZONE_15MIN_LIMIT = 96
@@ -206,6 +208,7 @@ async def download_and_decrypt_sleep_details(
     tz_in_15min = normalize_timezone_to_15min(timezone_value)
 
     sid = str(relative_uid)
+    device_id = client.auth.token.device_id or sid
     key_bytes = gen_data_id_key_bytes(
         timestamp,
         tz_in_15min,
@@ -219,7 +222,7 @@ async def download_and_decrypt_sleep_details(
     suffix = f"{suffix_b64}_{sha1_b64}"
 
     param_dict = {
-        "did": sid,
+        "did": device_id,
         "relative_uid": relative_uid,
         "items": [
             {
@@ -229,11 +232,56 @@ async def download_and_decrypt_sleep_details(
         ],
     }
 
-    resp = await client._request(
-        "GET",
-        "/healthapp/service/gen_download_url",
-        params=param_dict,
-    )
+    resp = None
+    try:
+        resp = await client._request(
+            "GET",
+            "/healthapp/service/gen_download_url",
+            params=param_dict,
+        )
+    except APIError as exc:
+        if exc.code == -6:
+            log_fn(f"FDS error code -6 (device not exist) with did={device_id}. Attempting to recover...")
+            candidates = []
+            if device_id != sid:
+                candidates.append(sid)
+            
+            try:
+                # Try to fetch real device IDs from the account
+                if hasattr(client, "get_devices"):
+                    devices = await client.get_devices()
+                    for d in devices:
+                        if d.did and d.did not in ([device_id] + candidates):
+                            candidates.append(d.did)
+            except Exception as e:
+                log_fn(f"Failed to fetch bound devices: {e}")
+
+            success = False
+            for candidate_did in candidates:
+                log_fn(f"Retrying gen_download_url with did={candidate_did}...")
+                retry_params = param_dict.copy()
+                retry_params["did"] = candidate_did
+                try:
+                    resp = await client._request(
+                        "GET",
+                        "/healthapp/service/gen_download_url",
+                        params=retry_params,
+                    )
+                    success = True
+                    log_fn(f"Recovery successful with did={candidate_did}")
+                    break
+                except APIError as exc2:
+                    log_fn(f"Retry with did={candidate_did} failed: {exc2}")
+                    continue
+            
+            if not success:
+                log_fn("All recovery attempts for FDS 'device not exist' failed.")
+                raise exc
+        else:
+            raise exc
+
+    if not resp:
+        return None
 
     result = resp.get("result", {})
     log_fn(

@@ -10,7 +10,7 @@ import os
 import tempfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Self, TypeVar
+from typing import TypeVar
 
 from loguru import logger
 
@@ -88,7 +88,7 @@ class XiaomiAuth:
         self._token_path: Path | None = None
 
     @classmethod
-    def from_token(cls, path: Path | str) -> Self:
+    def from_token(cls, path: Path | str) -> XiaomiAuth:
         """从文件加载已有 token，一步完成初始化。
 
         Args:
@@ -442,7 +442,7 @@ class XiaomiAuth:
     # endregion
 
     # region 上下文管理器
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> XiaomiAuth:
         return self
 
     async def __aexit__(self, *args: object) -> None:

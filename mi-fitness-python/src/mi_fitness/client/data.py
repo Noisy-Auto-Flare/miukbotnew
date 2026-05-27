@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+UTC = timezone.utc
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import ValidationError
