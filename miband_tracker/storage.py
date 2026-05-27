@@ -21,34 +21,20 @@ EXPORT_TABLES = ["steps_daily", "sleep_daily", "sleep_stages", "heart_rate", "bl
 
 @contextmanager
 def sqlite_conn(path: Path, *, row_factory: bool = True):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    if row_factory:
+        conn.row_factory = sqlite3.Row
     try:
-        if not path.parent.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    
-    conn = None
-    try:
-        conn = sqlite3.connect(path)
-        conn.execute("PRAGMA busy_timeout = 5000")
-        if row_factory:
-            conn.row_factory = sqlite3.Row
         yield conn
     finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        conn.close()
 
 
 def init_health_db(db_path: Path) -> None:
-    try:
-        with sqlite_conn(db_path, row_factory=False) as conn:
-            if conn is None:
-                print(f"Failed to connect to health database: {db_path}")
-                return
-            cursor = conn.cursor()
+    with sqlite_conn(db_path, row_factory=False) as conn:
+        cursor = conn.cursor()
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS steps_daily (
@@ -167,8 +153,6 @@ def init_health_db(db_path: Path) -> None:
             """
         )
         conn.commit()
-    except Exception as e:
-        print(f"Error initializing health database {db_path}: {e}")
 
 
 def _ensure_columns(cursor: sqlite3.Cursor, table: str, columns: dict[str, str]) -> None:
@@ -179,22 +163,17 @@ def _ensure_columns(cursor: sqlite3.Cursor, table: str, columns: dict[str, str])
 
 
 def init_state_db(settings: Settings) -> None:
-    try:
-        with sqlite_conn(settings.bot_state_db_path, row_factory=False) as conn:
-            if conn is None:
-                return
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_menu (
-                    user_id INTEGER PRIMARY KEY,
-                    menu_message_id INTEGER NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
+    with sqlite_conn(settings.bot_state_db_path, row_factory=False) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_menu (
+                user_id INTEGER PRIMARY KEY,
+                menu_message_id INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
             )
-            conn.commit()
-    except Exception as e:
-        print(f"Error initializing state database: {e}")
+            """
+        )
+        conn.commit()
 
 
 def get_user_menu_msg_id(settings: Settings, user_id: int) -> int | None:
@@ -210,20 +189,15 @@ def get_user_menu_msg_id(settings: Settings, user_id: int) -> int | None:
 
 
 def set_user_menu_msg_id(settings: Settings, user_id: int, msg_id: int) -> None:
-    try:
-        with sqlite_conn(settings.bot_state_db_path, row_factory=False) as conn:
-            if conn is None:
-                return
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO user_menu (user_id, menu_message_id, updated_at)
-                VALUES (?, ?, ?)
-                """,
-                (user_id, msg_id, datetime.now(LOCAL_TZ).isoformat(timespec="seconds")),
-            )
-            conn.commit()
-    except Exception:
-        pass
+    with sqlite_conn(settings.bot_state_db_path, row_factory=False) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO user_menu (user_id, menu_message_id, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            (user_id, msg_id, datetime.now(LOCAL_TZ).isoformat(timespec="seconds")),
+        )
+        conn.commit()
 
 
 def get_all_users_with_menu(settings: Settings) -> list[int]:

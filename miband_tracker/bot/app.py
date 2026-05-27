@@ -1841,7 +1841,7 @@ def main() -> None:
     BOT_TOKEN = SETTINGS.telegram_bot_token
     ALLOWED_USER_ID = SETTINGS.telegram_allowed_user_id
     if ALLOWED_USER_ID is not None:
-        DB_PATH = str(SETTINGS.user_db_path(ALLOWED_USER_ID))
+        DB_PATH = str(SETTINGS.canonical_user_db_path(ALLOWED_USER_ID))
         print(f"Запуск бота для пользователя ID {ALLOWED_USER_ID}...")
         storage.init_health_db(Path(DB_PATH))
     else:
