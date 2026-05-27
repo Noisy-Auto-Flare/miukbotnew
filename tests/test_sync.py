@@ -22,6 +22,9 @@ async def test_run_sync_missing_token_returns_failed_result(tmp_path: Path) -> N
         sync_interval=0,
         query_duration=2,
         enable_fds_sleep_details=True,
+        mi_region="ru",
+        telegram_allowed_ids=[],
+        is_public=False,
     )
 
     result = await run_sync(settings=settings)

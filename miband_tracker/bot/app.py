@@ -236,19 +236,20 @@ def health_db_exists() -> bool:
     return storage.health_db_exists(SETTINGS, ALLOWED_USER_ID)
 
 
-def health_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(get_user_db_path())
+def health_conn(user_id: int | None = None) -> sqlite3.Connection:
+    path = str(SETTINGS.user_db_path(user_id or ALLOWED_USER_ID))
+    conn = sqlite3.connect(path)
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def fetch_one(query: str, params: tuple = ()) -> sqlite3.Row | None:
-    return storage.fetch_one(SETTINGS, query, params, ALLOWED_USER_ID)
+def fetch_one(query: str, params: tuple = (), user_id: int | None = None) -> sqlite3.Row | None:
+    return storage.fetch_one(SETTINGS, query, params, user_id or ALLOWED_USER_ID)
 
 
-def fetch_all(query: str, params: tuple = ()) -> list[sqlite3.Row]:
-    return storage.fetch_all(SETTINGS, query, params, ALLOWED_USER_ID)
+def fetch_all(query: str, params: tuple = (), user_id: int | None = None) -> list[sqlite3.Row]:
+    return storage.fetch_all(SETTINGS, query, params, user_id or ALLOWED_USER_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -354,27 +355,29 @@ async def update_menu(
 
 async def auto_refresh_main_menu_loop(app: Application) -> None:
     """Refresh the pinned main menu after the sync daemon writes a new status file."""
-    if ALLOWED_USER_ID is None:
-        return
+    last_seen_mtimes: dict[int, float] = {}
 
-    last_seen_mtime: float | None = None
     while True:
         try:
-            status_path = SETTINGS.user_status_path(ALLOWED_USER_ID)
-            if status_path.exists():
-                current_mtime = status_path.stat().st_mtime
-                if last_seen_mtime is None:
-                    last_seen_mtime = current_mtime
-                elif current_mtime > last_seen_mtime:
-                    last_seen_mtime = current_mtime
-                    if get_user_menu_msg_id(ALLOWED_USER_ID):
-                        await send_or_update_menu(
-                            app.bot,
-                            ALLOWED_USER_ID,
-                            main_menu_text(),
-                            main_keyboard(),
-                        )
-                        logger.info("Auto-refreshed main menu for user %s", ALLOWED_USER_ID)
+            # Get all users who have an active menu message
+            users = storage.get_all_users_with_menu(SETTINGS)
+            for user_id in users:
+                status_path = SETTINGS.user_status_path(user_id)
+                if status_path.exists():
+                    current_mtime = status_path.stat().st_mtime
+                    if user_id not in last_seen_mtimes:
+                        last_seen_mtimes[user_id] = current_mtime
+                    elif current_mtime > last_seen_mtimes[user_id]:
+                        last_seen_mtimes[user_id] = current_mtime
+                        # Only refresh if the user still has an active menu
+                        if get_user_menu_msg_id(user_id):
+                            await send_or_update_menu(
+                                app.bot,
+                                user_id,
+                                main_menu_text(user_id),
+                                main_keyboard(),
+                            )
+                            logger.info("Auto-refreshed main menu for user %s", user_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -403,22 +406,23 @@ async def stop_background_tasks(app: Application) -> None:
 # ---------------------------------------------------------------------------
 # Data queries
 # ---------------------------------------------------------------------------
-def read_status_file() -> dict:
-    return storage.read_status_file(SETTINGS, ALLOWED_USER_ID)
+def read_status_file(user_id: int | None = None) -> dict:
+    return storage.read_status_file(SETTINGS, user_id or ALLOWED_USER_ID)
 
 
-def latest_steps() -> sqlite3.Row | None:
+def latest_steps(user_id: int | None = None) -> sqlite3.Row | None:
     return fetch_one(
         """
         SELECT date, total_steps, calories, distance_m, last_sync
         FROM steps_daily
         ORDER BY date DESC
         LIMIT 1
-        """
+        """,
+        user_id=user_id,
     )
 
 
-def latest_sleep() -> sqlite3.Row | None:
+def latest_sleep(user_id: int | None = None) -> sqlite3.Row | None:
     return fetch_one(
         """
         SELECT date, light_sleep_min, deep_sleep_min, start_time, end_time,
@@ -429,40 +433,52 @@ def latest_sleep() -> sqlite3.Row | None:
         FROM sleep_daily
         ORDER BY date DESC
         LIMIT 1
-        """
+        """,
+        user_id=user_id,
     )
 
 
-def latest_hr() -> sqlite3.Row | None:
-    return fetch_one("SELECT timestamp, value FROM heart_rate ORDER BY timestamp DESC LIMIT 1")
-
-
-def latest_spo2() -> sqlite3.Row | None:
+def latest_hr(user_id: int | None = None) -> sqlite3.Row | None:
     return fetch_one(
-        "SELECT timestamp, spo2, type FROM blood_oxygen ORDER BY timestamp DESC LIMIT 1"
+        "SELECT timestamp, value FROM heart_rate ORDER BY timestamp DESC LIMIT 1",
+        user_id=user_id,
     )
 
 
-def latest_stress() -> sqlite3.Row | None:
-    return fetch_one("SELECT timestamp, value FROM stress ORDER BY timestamp DESC LIMIT 1")
+def latest_spo2(user_id: int | None = None) -> sqlite3.Row | None:
+    return fetch_one(
+        "SELECT timestamp, spo2, type FROM blood_oxygen ORDER BY timestamp DESC LIMIT 1",
+        user_id=user_id,
+    )
 
 
-def latest_weight() -> sqlite3.Row | None:
-    return fetch_one("SELECT timestamp, weight_kg FROM weight ORDER BY timestamp DESC LIMIT 1")
+def latest_stress(user_id: int | None = None) -> sqlite3.Row | None:
+    return fetch_one(
+        "SELECT timestamp, value FROM stress ORDER BY timestamp DESC LIMIT 1",
+        user_id=user_id,
+    )
 
 
-def latest_calories() -> sqlite3.Row | None:
+def latest_weight(user_id: int | None = None) -> sqlite3.Row | None:
+    return fetch_one(
+        "SELECT timestamp, weight_kg FROM weight ORDER BY timestamp DESC LIMIT 1",
+        user_id=user_id,
+    )
+
+
+def latest_calories(user_id: int | None = None) -> sqlite3.Row | None:
     return fetch_one(
         """
-        SELECT date, total_cal, valid_stand_hours, intensity_minutes
+        SELECT date, total_cal, active_cal, valid_stand_hours, intensity_minutes
         FROM calories_daily
         ORDER BY date DESC
         LIMIT 1
-        """
+        """,
+        user_id=user_id,
     )
 
 
-def recent_workouts(limit: int = 5) -> list[sqlite3.Row]:
+def recent_workouts(limit: int = 5, user_id: int | None = None) -> list[sqlite3.Row]:
     return fetch_all(
         """
         SELECT workout_id, sport_type, start_time, end_time,
@@ -472,10 +488,11 @@ def recent_workouts(limit: int = 5) -> list[sqlite3.Row]:
         LIMIT ?
         """,
         (limit,),
+        user_id=user_id,
     )
 
 
-def resting_hr(start_epoch: int, end_epoch: int) -> int | None:
+def resting_hr(start_epoch: int, end_epoch: int, user_id: int | None = None) -> int | None:
     """Пульс покоя = минимальный за окно сна (игнорируем нули и аномалии < 30)."""
     row = fetch_one(
         """
@@ -484,13 +501,14 @@ def resting_hr(start_epoch: int, end_epoch: int) -> int | None:
         WHERE timestamp >= ? AND timestamp < ? AND value > 30
         """,
         (start_epoch, end_epoch),
+        user_id=user_id,
     )
     if row and row["min_hr"]:
         return int(row["min_hr"])
     return None
 
 
-def metric_stats(table: str, field: str, start_epoch: int, end_epoch: int) -> sqlite3.Row | None:
+def metric_stats(table: str, field: str, start_epoch: int, end_epoch: int, user_id: int | None = None) -> sqlite3.Row | None:
     return fetch_one(
         f"""
         SELECT COUNT(*) AS count,
@@ -501,20 +519,21 @@ def metric_stats(table: str, field: str, start_epoch: int, end_epoch: int) -> sq
         WHERE timestamp >= ? AND timestamp < ?
         """,
         (start_epoch, end_epoch),
+        user_id=user_id,
     )
 
 
-def sleep_window_stats(sleep: sqlite3.Row | None) -> tuple[sqlite3.Row | None, sqlite3.Row | None]:
+def sleep_window_stats(sleep: sqlite3.Row | None, user_id: int | None = None) -> tuple[sqlite3.Row | None, sqlite3.Row | None]:
     if not sleep or not sleep["start_time"] or not sleep["end_time"]:
         return None, None
-    hr = metric_stats("heart_rate", "value", int(sleep["start_time"]), int(sleep["end_time"]))
+    hr = metric_stats("heart_rate", "value", int(sleep["start_time"]), int(sleep["end_time"]), user_id=user_id)
     spo2 = metric_stats(
-        "blood_oxygen", "spo2", int(sleep["start_time"]), int(sleep["end_time"])
+        "blood_oxygen", "spo2", int(sleep["start_time"]), int(sleep["end_time"]), user_id=user_id
     )
     return hr, spo2
 
 
-def day_summary(day_str: str) -> dict:
+def day_summary(day_str: str, user_id: int | None = None) -> dict:
     day_value = parse_day(day_str)
     start_epoch, end_epoch = day_bounds(day_value)
     steps = fetch_one(
@@ -524,6 +543,7 @@ def day_summary(day_str: str) -> dict:
         WHERE date = ?
         """,
         (day_str,),
+        user_id=user_id,
     )
     sleep = fetch_one(
         """
@@ -536,10 +556,11 @@ def day_summary(day_str: str) -> dict:
         WHERE date = ?
         """,
         (day_str,),
+        user_id=user_id,
     )
-    hr = metric_stats("heart_rate", "value", start_epoch, end_epoch)
-    spo2 = metric_stats("blood_oxygen", "spo2", start_epoch, end_epoch)
-    stress = metric_stats("stress", "value", start_epoch, end_epoch)
+    hr = metric_stats("heart_rate", "value", start_epoch, end_epoch, user_id=user_id)
+    spo2 = metric_stats("blood_oxygen", "spo2", start_epoch, end_epoch, user_id=user_id)
+    stress = metric_stats("stress", "value", start_epoch, end_epoch, user_id=user_id)
     calories = fetch_one(
         """
         SELECT total_cal, active_cal, valid_stand_hours, intensity_minutes
@@ -547,6 +568,7 @@ def day_summary(day_str: str) -> dict:
         WHERE date = ?
         """,
         (day_str,),
+        user_id=user_id,
     )
     weight = fetch_one(
         """
@@ -557,6 +579,7 @@ def day_summary(day_str: str) -> dict:
         LIMIT 1
         """,
         (end_epoch,),
+        user_id=user_id,
     )
     workouts = fetch_all(
         """
@@ -566,6 +589,7 @@ def day_summary(day_str: str) -> dict:
         ORDER BY start_time ASC
         """,
         (start_epoch, end_epoch),
+        user_id=user_id,
     )
     return {
         "date": day_str,
@@ -580,7 +604,7 @@ def day_summary(day_str: str) -> dict:
     }
 
 
-def available_days(limit: int = 14) -> list[str]:
+def available_days(limit: int = 14, user_id: int | None = None) -> list[str]:
     rows = fetch_all(
         """
         SELECT date FROM (
@@ -592,6 +616,7 @@ def available_days(limit: int = 14) -> list[str]:
         LIMIT ?
         """,
         (limit,),
+        user_id=user_id,
     )
     return [row["date"] for row in rows]
 
@@ -604,7 +629,7 @@ def period_bounds(days: int) -> tuple[date, date, int, int]:
     return start_day, end_day, start_epoch, end_epoch
 
 
-def period_summary(days: int) -> dict:
+def period_summary(days: int, user_id: int | None = None) -> dict:
     start_day, end_day, start_epoch, end_epoch = period_bounds(days)
     steps = fetch_all(
         """
@@ -614,6 +639,7 @@ def period_summary(days: int) -> dict:
         ORDER BY date DESC
         """,
         (start_day.isoformat(), end_day.isoformat()),
+        user_id=user_id,
     )
     sleep = fetch_all(
         """
@@ -627,10 +653,11 @@ def period_summary(days: int) -> dict:
         ORDER BY date DESC
         """,
         (start_day.isoformat(), end_day.isoformat()),
+        user_id=user_id,
     )
-    hr = metric_stats("heart_rate", "value", start_epoch, end_epoch)
-    spo2 = metric_stats("blood_oxygen", "spo2", start_epoch, end_epoch)
-    stress = metric_stats("stress", "value", start_epoch, end_epoch)
+    hr = metric_stats("heart_rate", "value", start_epoch, end_epoch, user_id=user_id)
+    spo2 = metric_stats("blood_oxygen", "spo2", start_epoch, end_epoch, user_id=user_id)
+    stress = metric_stats("stress", "value", start_epoch, end_epoch, user_id=user_id)
 
     calories_rows = fetch_all(
         """
@@ -640,6 +667,7 @@ def period_summary(days: int) -> dict:
         ORDER BY date DESC
         """,
         (start_day.isoformat(), end_day.isoformat()),
+        user_id=user_id,
     )
 
     weight_rows = fetch_all(
@@ -650,6 +678,7 @@ def period_summary(days: int) -> dict:
         ORDER BY timestamp DESC
         """,
         (start_epoch, end_epoch),
+        user_id=user_id,
     )
     if not weight_rows:
         latest_w = fetch_one(
@@ -658,7 +687,8 @@ def period_summary(days: int) -> dict:
             FROM weight
             ORDER BY timestamp DESC
             LIMIT 1
-            """
+            """,
+            user_id=user_id,
         )
         weight_rows = [latest_w] if latest_w else []
 
@@ -698,20 +728,29 @@ def day_emoji(steps_row: sqlite3.Row | None, sleep_row: sqlite3.Row | None) -> s
 # ---------------------------------------------------------------------------
 # Dashboard text — «умный» с динамическим заголовком и советом дня
 # ---------------------------------------------------------------------------
-def main_menu_text() -> str:
-    steps = latest_steps()
-    sleep = latest_sleep()
-    hr = latest_hr()
-    spo2 = latest_spo2()
-    stress = latest_stress()
-    status = storage.read_status_file(SETTINGS, ALLOWED_USER_ID)
+def main_menu_text(user_id: int | None = None) -> str:
+    steps = latest_steps(user_id)
+    sleep = latest_sleep(user_id)
+    hr = latest_hr(user_id)
+    spo2 = latest_spo2(user_id)
+    stress = latest_stress(user_id)
+    calories = latest_calories(user_id)
+    status = storage.read_status_file(SETTINGS, user_id or ALLOWED_USER_ID)
     lines = []
 
-    # 1. Шаги
+    # 1. Шаги и Калории
     if steps:
         steps_count = int(steps["total_steps"])
         dist_km = float(steps['distance_m']) / 1000.0
+        
+        # Приоритет: данные из calories_daily (там сумма по всем активностям)
+        # Если даты совпадают, берем active_cal или total_cal оттуда.
         cals = float(steps['calories'])
+        if calories and calories['date'] == steps['date']:
+            # active_cal — это то, что обычно на кольцах активности (359)
+            # total_cal в нашей новой схеме — это consumption (может быть > 1000)
+            cals = float(calories['active_cal'] or calories['total_cal'] or cals)
+
         lines.append(f"🚶 <b>{steps_count:,}</b> · <b>{dist_km:.1f}</b> км · <b>{cals:.0f}</b> ккал".replace(",", " "))
     else:
         lines.append("🚶 Шаги н/д")
@@ -914,8 +953,8 @@ def day_btn_label(date_str: str) -> str:
     except Exception:
         return date_str
 
-def history_text(days: int = 7) -> str:
-    summary = period_summary(days)
+def history_text(days: int = 7, user_id: int | None = None) -> str:
+    summary = period_summary(days, user_id=user_id)
     rows = summary["steps"]
     sleep_by_day = {row["date"]: row for row in summary["sleep"]}
     all_days = sorted(
@@ -955,7 +994,7 @@ def history_text(days: int = 7) -> str:
     return "\n".join(lines)
 
 
-def history_keyboard(days: int = 7) -> InlineKeyboardMarkup:
+def history_keyboard(days: int = 7, user_id: int | None = None) -> InlineKeyboardMarkup:
     # Переключатели периода
     period_row = [
         InlineKeyboardButton(
@@ -971,7 +1010,7 @@ def history_keyboard(days: int = 7) -> InlineKeyboardMarkup:
 
     day_buttons = [
         InlineKeyboardButton(day_btn_label(day), callback_data=f"day:{day}")
-        for day in available_days(days)
+        for day in available_days(days, user_id=user_id)
     ]
     for idx in range(0, len(day_buttons), 3):
         buttons.append(day_buttons[idx: idx + 3])
@@ -1003,12 +1042,12 @@ def day_keyboard(current: date) -> InlineKeyboardMarkup:
 # ---------------------------------------------------------------------------
 # Sleep detail text
 # ---------------------------------------------------------------------------
-def latest_sleep_text() -> str:
-    sleep = latest_sleep()
+def latest_sleep_text(user_id: int | None = None) -> str:
+    sleep = latest_sleep(user_id=user_id)
     if not sleep:
         return "😴 <b>Ночной сон</b>\n\nПока нет данных."
 
-    hr, spo2 = sleep_window_stats(sleep)
+    hr, spo2 = sleep_window_stats(sleep, user_id=user_id)
     total_sleep = sleep_total(sleep)
     deep = int(sleep["deep_sleep_min"] or 0)
     rem = int(sleep["rem_sleep_min"] or 0)
@@ -1026,7 +1065,7 @@ def latest_sleep_text() -> str:
 
     rest_hr_str = "н/д"
     if sleep["start_time"] and sleep["end_time"]:
-        rest_hr = resting_hr(int(sleep["start_time"]), int(sleep["end_time"]))
+        rest_hr = resting_hr(int(sleep["start_time"]), int(sleep["end_time"]), user_id=user_id)
         if rest_hr:
             rest_hr_str = f"{rest_hr} bpm"
 
@@ -1067,8 +1106,8 @@ def latest_sleep_text() -> str:
 # ---------------------------------------------------------------------------
 # Analytics / Trends
 # ---------------------------------------------------------------------------
-def period_text(days: int) -> str:
-    summary = period_summary(days)
+def period_text(days: int, user_id: int | None = None) -> str:
+    summary = period_summary(days, user_id=user_id)
     steps = summary["steps"]
     sleep_rows = summary["sleep"]
 
@@ -1692,9 +1731,9 @@ async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @with_user_context
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not is_allowed(update):
+    if not is_allowed(update) or not update.message:
         return
-    text = update.message.text if update.message else ""
+    text = update.message.text or ""
     await safe_delete(update.message)
     if not has_xiaomi_token():
         await show_onboarding(update, context)
@@ -1718,12 +1757,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 @with_user_context
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    if query:
-        await query.answer()
+    if not query:
+        return
+    await query.answer()
     if not is_allowed(update):
         return
 
-    data = query.data if query else "menu:main"
+    data = query.data or "menu:main"
 
     if data in {"auth:start", "auth:relogin"}:
         await start_xiaomi_login(update, context, force=data == "auth:relogin")

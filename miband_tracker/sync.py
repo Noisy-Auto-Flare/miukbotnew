@@ -321,7 +321,18 @@ async def run_sync_for_user(
         log(message)
         return SyncResult.failed(message, user_id=user_id)
 
-    _write_status_file(status_path, latest_steps, latest_heart_rate, latest_sleep)
+    # Fetch latest calories to provide a better estimate in status file
+    actual_calories = latest_steps["calories"] if latest_steps else 0
+    if latest_steps:
+        cursor.execute(
+            "SELECT active_cal, total_cal FROM calories_daily WHERE date = ?",
+            (latest_steps["date"],)
+        )
+        cal_row = cursor.fetchone()
+        if cal_row:
+            actual_calories = cal_row[0] or cal_row[1] or actual_calories
+
+    _write_status_file(status_path, latest_steps, latest_heart_rate, latest_sleep, actual_calories)
     log("Sync completed successfully.")
     return SyncResult(True, user_id=user_id, counters=counters)
 
@@ -361,7 +372,7 @@ async def _sync_fds_segment(cursor, counters: dict[str, int], client, relative_u
         log(f"Failed to sync details from FDS: {exc}")
 
 
-def _write_status_file(status_path: Path, latest_steps, latest_heart_rate, latest_sleep) -> None:
+def _write_status_file(status_path: Path, latest_steps, latest_heart_rate, latest_sleep, actual_calories=None) -> None:
     now_epoch = int(time.time())
     status_data = {
         "last_sync": now_epoch,
@@ -374,7 +385,7 @@ def _write_status_file(status_path: Path, latest_steps, latest_heart_rate, lates
         status_data["today"] = {
             "date": latest_steps["date"],
             "steps": latest_steps["total_steps"],
-            "calories": latest_steps["calories"],
+            "calories": actual_calories if actual_calories is not None else latest_steps["calories"],
             "distance_m": latest_steps["distance_m"],
         }
     if latest_heart_rate:
@@ -484,7 +495,9 @@ async def _sync_calories_daily(
         except Exception as exc:
             log(f"Failed to fetch '{api_key}': {exc}")
 
-    await _collect("calories", "total_cal", "calories")
+    await _collect("calories", "active_cal", "calories")
+    await _collect("calories", "active_cal", "calories_active")
+    await _collect("calories", "total_cal", "consumption")
     await _collect("intensity", "intensity_minutes", "duration")
     await _collect("valid_stand", "valid_stand_hours", "count")
 
@@ -603,24 +616,57 @@ async def _sync_workouts(
 async def daemon_main(settings: Settings | None = None) -> int:
     settings = settings or Settings.from_env()
     if settings.sync_interval <= 0:
-        result = await run_sync(settings=settings)
-        return 0 if result.success else 1
+        # Run for all known users once
+        user_ids = _find_all_users_with_tokens(settings)
+        if not user_ids and settings.telegram_allowed_user_id:
+            user_ids = [settings.telegram_allowed_user_id]
+        
+        results = []
+        for uid in user_ids:
+            results.append(await run_sync(uid, settings))
+        return 0 if all(r.success for r in results) else 1
 
     _waiting_logged = False
     while True:
         try:
             current_settings = Settings.from_env()
-            if current_settings.telegram_allowed_user_id is None:
+            user_ids = _find_all_users_with_tokens(current_settings)
+            
+            # Also include the main allowed user if not found but configured
+            if current_settings.telegram_allowed_user_id and current_settings.telegram_allowed_user_id not in user_ids:
+                user_ids.append(current_settings.telegram_allowed_user_id)
+
+            if not user_ids:
                 if not _waiting_logged:
                     log("Синхронизатор ожидает привязки аккаунта через Telegram (/start)...")
                     _waiting_logged = True
                 await asyncio.sleep(5)
                 continue
 
-            _waiting_logged = False  # Reset so we log again if user unregisters
-            await run_sync(settings=current_settings)
+            _waiting_logged = False
+            for uid in user_ids:
+                try:
+                    await run_sync(uid, current_settings)
+                except Exception as e:
+                    log(f"Sync failed for user {uid}: {e}")
         except Exception as exc:
             log(f"Unhandled error in main loop: {exc}")
 
         interval = Settings.from_env().sync_interval
         await asyncio.sleep(interval)
+
+
+def _find_all_users_with_tokens(settings: Settings) -> list[int]:
+    """Finds all user IDs that have a token file in the data directory."""
+    user_ids = []
+    try:
+        for p in settings.data_dir.glob("token_*.json"):
+            try:
+                # token_123456.json -> 123456
+                uid_str = p.stem.split("_")[1]
+                user_ids.append(int(uid_str))
+            except (IndexError, ValueError):
+                continue
+    except Exception as e:
+        log(f"Error searching for tokens: {e}")
+    return user_ids

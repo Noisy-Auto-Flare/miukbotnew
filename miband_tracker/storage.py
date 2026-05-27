@@ -200,6 +200,15 @@ def set_user_menu_msg_id(settings: Settings, user_id: int, msg_id: int) -> None:
         conn.commit()
 
 
+def get_all_users_with_menu(settings: Settings) -> list[int]:
+    try:
+        with sqlite_conn(settings.bot_state_db_path, row_factory=False) as conn:
+            rows = conn.execute("SELECT user_id FROM user_menu").fetchall()
+            return [int(row[0]) for row in rows]
+    except sqlite3.Error:
+        return []
+
+
 def health_db_exists(settings: Settings, user_id: int | None = None) -> bool:
     return settings.user_db_path(user_id).exists()
 

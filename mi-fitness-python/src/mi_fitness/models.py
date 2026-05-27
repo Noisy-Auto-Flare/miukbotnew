@@ -344,13 +344,15 @@ class StepData(BaseModel):
         time: 数据时间戳。
         steps: 步数。
         distance: 距离（米）。
-        calories: 消耗卡路里。
+        calories: 消耗卡路里（通常仅指步数产生的）。
+        active_calories: 总活动卡路里（包含站立、锻炼等）。
     """
 
     time: int = Field(default=0, validation_alias=AliasChoices("time", "date_time"))
     steps: int = 0
     distance: int = 0
     calories: int = 0
+    active_calories: int = Field(default=0, validation_alias=AliasChoices("active_calories", "calories_active"))
     goal: int = 0
 
     def __str__(self) -> str:
@@ -559,12 +561,16 @@ class CaloriesData(BaseModel):
 
     Attributes:
         time: 数据时间戳。
-        calories: 已消耗活动卡路里。
+        calories: 消耗卡路里。
+        active_calories: 活动卡路里（Alias for calories_active）。
+        consumption: 总消耗卡路里（包含基础代谢）。
         goal: 卡路里目标值。
     """
 
     time: int = Field(default=0, validation_alias=AliasChoices("time", "date_time"))
     calories: int = 0
+    active_calories: int = Field(default=0, validation_alias=AliasChoices("active_calories", "calories_active"))
+    consumption: int = 0
     goal: int = 0
 
     def __str__(self) -> str:
