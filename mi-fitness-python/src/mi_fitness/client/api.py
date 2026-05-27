@@ -281,7 +281,7 @@ class MiHealthClient:
             if nested:
                 return nested
 
-        candidate_keys = ("devices", "device_list", "list", "items", "rows", "data")
+        candidate_keys = ("result", "devices", "device_list", "list", "items", "rows", "data")
         for key in candidate_keys:
             value = result.get(key)
             if isinstance(value, list):
@@ -292,10 +292,9 @@ class MiHealthClient:
                     return nested
 
         for value in result.values():
-            if isinstance(value, dict):
-                nested = MiHealthClient._extract_device_items(value)
-                if nested:
-                    return nested
+            nested = MiHealthClient._extract_device_items(value)
+            if nested:
+                return nested
 
         return []
 

@@ -157,6 +157,27 @@ class TestGetDevices:
         assert devices[0].did == "789"
         assert devices[0].name == "Band 9"
 
+    async def test_get_devices_parses_resp_json_result_list(self, mock_auth: Any) -> None:
+        client = _make_client(mock_auth)
+        client._request = AsyncMock(
+            return_value={
+                "code": 0,
+                "result": {
+                    "resp": (
+                        '{"code":0,"message":"ok","result":['
+                        '{"did":"999","name":"Band 10","model":"miband10","status":1}'
+                        ']}'
+                    )
+                },
+            }
+        )
+
+        devices = await client.get_devices()
+
+        assert len(devices) == 1
+        assert devices[0].did == "999"
+        assert devices[0].name == "Band 10"
+
 
 # region 查找亲友
 class TestFindRelative:
