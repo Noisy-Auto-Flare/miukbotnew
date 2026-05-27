@@ -247,9 +247,10 @@ class MiHealthClient:
         devices = self._extract_device_items(result)
         if not devices:
             logger.debug(
-                "bind/devices returned no device items, result_type={}, result_keys={}",
+                "bind/devices returned no device items, result_type={}, result_keys={}, resp_type={}",
                 type(result).__name__,
                 sorted(result.keys()) if isinstance(result, dict) else [],
+                type(result.get("resp")).__name__ if isinstance(result, dict) and "resp" in result else "",
             )
             return []
         return [Device.model_validate(d) for d in devices]
@@ -257,11 +258,28 @@ class MiHealthClient:
     @staticmethod
     def _extract_device_items(result: Any) -> list[dict[str, Any]]:
         """兼容 eco api_proxy 不同 result 结构中的设备列表。"""
+        import json
+
         if isinstance(result, list):
             return [item for item in result if isinstance(item, dict)]
 
+        if isinstance(result, str):
+            stripped = result.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                try:
+                    return MiHealthClient._extract_device_items(json.loads(stripped))
+                except json.JSONDecodeError:
+                    return []
+            return []
+
         if not isinstance(result, dict):
             return []
+
+        resp_value = result.get("resp")
+        if resp_value is not None:
+            nested = MiHealthClient._extract_device_items(resp_value)
+            if nested:
+                return nested
 
         candidate_keys = ("devices", "device_list", "list", "items", "rows", "data")
         for key in candidate_keys:
