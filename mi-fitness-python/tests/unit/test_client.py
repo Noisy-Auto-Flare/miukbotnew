@@ -178,6 +178,27 @@ class TestGetDevices:
         assert devices[0].did == "999"
         assert devices[0].name == "Band 10"
 
+    async def test_get_devices_parses_double_encoded_resp_json(self, mock_auth: Any) -> None:
+        client = _make_client(mock_auth)
+        client._request = AsyncMock(
+            return_value={
+                "code": 0,
+                "result": {
+                    "resp": (
+                        '"{\\"code\\":0,\\"message\\":\\"ok\\",\\"result\\":['
+                        '{\\"did\\":\\"111\\",\\"name\\":\\"Band 8\\",\\"model\\":\\"miband8\\",\\"status\\":1}'
+                        ']}"'
+                    )
+                },
+            }
+        )
+
+        devices = await client.get_devices()
+
+        assert len(devices) == 1
+        assert devices[0].did == "111"
+        assert devices[0].name == "Band 8"
+
 
 # region 查找亲友
 class TestFindRelative:

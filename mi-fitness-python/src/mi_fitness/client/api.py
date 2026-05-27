@@ -246,11 +246,17 @@ class MiHealthClient:
         result = resp.get("result", [])
         devices = self._extract_device_items(result)
         if not devices:
+            resp_preview = ""
+            if isinstance(result, dict) and "resp" in result:
+                resp_value = result.get("resp")
+                if isinstance(resp_value, str):
+                    resp_preview = resp_value[:240].replace("\n", "\\n").replace("\r", "\\r")
             logger.debug(
-                "bind/devices returned no device items, result_type={}, result_keys={}, resp_type={}",
+                "bind/devices returned no device items, result_type={}, result_keys={}, resp_type={}, resp_preview={}",
                 type(result).__name__,
                 sorted(result.keys()) if isinstance(result, dict) else [],
                 type(result.get("resp")).__name__ if isinstance(result, dict) and "resp" in result else "",
+                resp_preview,
             )
             return []
         return [Device.model_validate(d) for d in devices]
@@ -265,12 +271,13 @@ class MiHealthClient:
 
         if isinstance(result, str):
             stripped = result.strip()
-            if stripped.startswith("{") or stripped.startswith("["):
-                try:
-                    return MiHealthClient._extract_device_items(json.loads(stripped))
-                except json.JSONDecodeError:
-                    return []
-            return []
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                return []
+            if parsed == result:
+                return []
+            return MiHealthClient._extract_device_items(parsed)
 
         if not isinstance(result, dict):
             return []
