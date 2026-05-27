@@ -91,3 +91,34 @@ async def test_download_and_decrypt_sleep_details_recovery_with_device_list() ->
     assert client._request.call_args_list[0][1]["params"]["did"] == "old_did"
     assert client._request.call_args_list[1][1]["params"]["did"] == sid
     assert client._request.call_args_list[2][1]["params"]["did"] == "real_did"
+
+
+@pytest.mark.asyncio
+async def test_download_and_decrypt_sleep_details_skips_after_terminal_device_not_exist() -> None:
+    client = MagicMock()
+    client.auth.token.device_id = "old_did"
+    client._request = AsyncMock(side_effect=APIError("device not exist", code=-6))
+    client.get_devices = AsyncMock(return_value=[])
+
+    with pytest.raises(APIError):
+        await download_and_decrypt_sleep_details(
+            client,
+            12345,
+            1700000000,
+            60,
+            log_fn=lambda x: None,
+        )
+
+    assert getattr(client, "_fds_device_missing", False) is True
+    assert client._request.call_count == 2
+
+    result = await download_and_decrypt_sleep_details(
+        client,
+        12345,
+        1700000000,
+        60,
+        log_fn=lambda x: None,
+    )
+
+    assert result is None
+    assert client._request.call_count == 2

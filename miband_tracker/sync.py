@@ -156,6 +156,7 @@ async def run_sync_for_user(
     latest_heart_rate = None
     latest_steps = None
     latest_sleep = None
+    actual_calories = 0
 
     try:
         with sqlite_conn(db_path, row_factory=False) as conn:
@@ -312,6 +313,16 @@ async def run_sync_for_user(
                 )
 
                 conn.commit()
+
+                actual_calories = latest_steps["calories"] if latest_steps else 0
+                if latest_steps:
+                    cursor.execute(
+                        "SELECT active_cal, total_cal FROM calories_daily WHERE date = ?",
+                        (latest_steps["date"],)
+                    )
+                    cal_row = cursor.fetchone()
+                    if cal_row:
+                        actual_calories = cal_row[0] or cal_row[1] or actual_calories
     except TokenExpiredError:
         message = "Token has expired and auto-refresh failed. Action required: re-login."
         log(message)
@@ -320,17 +331,6 @@ async def run_sync_for_user(
         message = f"API request failed: {exc}"
         log(message)
         return SyncResult.failed(message, user_id=user_id)
-
-    # Fetch latest calories to provide a better estimate in status file
-    actual_calories = latest_steps["calories"] if latest_steps else 0
-    if latest_steps:
-        cursor.execute(
-            "SELECT active_cal, total_cal FROM calories_daily WHERE date = ?",
-            (latest_steps["date"],)
-        )
-        cal_row = cursor.fetchone()
-        if cal_row:
-            actual_calories = cal_row[0] or cal_row[1] or actual_calories
 
     _write_status_file(status_path, latest_steps, latest_heart_rate, latest_sleep, actual_calories)
     log("Sync completed successfully.")

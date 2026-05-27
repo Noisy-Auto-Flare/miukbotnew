@@ -29,6 +29,13 @@ ZLIB_MAGICS = (b"\x78\x9c", b"\x78\x01")
 SLEEP_VALID_TYPES = (0, 1, 2, 6, 7, 8, 9, 10, 3, 4, 5)
 
 
+def _client_session_attr(client: Any, name: str, default: Any = None) -> Any:
+    client_dict = getattr(client, "__dict__", None)
+    if isinstance(client_dict, dict):
+        return client_dict.get(name, default)
+    return default
+
+
 def normalize_timezone_to_15min(timezone_value: int) -> int:
     # Xiaomi sleep segments already use 15-minute units; token/bootstrap paths may use seconds.
     if abs(timezone_value) <= TIMEZONE_15MIN_LIMIT:
@@ -123,14 +130,14 @@ def _parse_all_day_sleep_bytes(payload: bytes) -> dict[str, Any]:
 
     data_valid = payload[7:9]
 
-    valid_map = {}
+    valid_map: dict[int, bool] = {}
     for index, valid_type in enumerate(SLEEP_VALID_TYPES):
         byte_idx = index // 8
         bit_idx = index % 8
         valid_map[valid_type] = (data_valid[byte_idx] & (1 << (7 - bit_idx))) > 0
 
     pos = 9
-    report_data = {"sleepFinish": payload[pos] == 1}
+    report_data: dict[str, Any] = {"sleepFinish": payload[pos] == 1}
     pos += 1
 
     report_data["deviceBedTime"] = struct.unpack_from("<I", payload, pos)[0]
@@ -208,7 +215,10 @@ async def download_and_decrypt_sleep_details(
     tz_in_15min = normalize_timezone_to_15min(timezone_value)
 
     sid = str(relative_uid)
-    device_id = client.auth.token.device_id or sid
+    if _client_session_attr(client, "_fds_device_missing", False):
+        return None
+
+    device_id = _client_session_attr(client, "_fds_device_id") or client.auth.token.device_id or sid
     key_bytes = gen_data_id_key_bytes(
         timestamp,
         tz_in_15min,
@@ -268,6 +278,7 @@ async def download_and_decrypt_sleep_details(
                         params=retry_params,
                     )
                     success = True
+                    setattr(client, "_fds_device_id", candidate_did)
                     log_fn(f"Recovery successful with did={candidate_did}")
                     break
                 except APIError as exc2:
@@ -275,6 +286,8 @@ async def download_and_decrypt_sleep_details(
                     continue
             
             if not success:
+                setattr(client, "_fds_device_missing", True)
+                log_fn("Disabling FDS detail requests for the rest of this sync session.")
                 log_fn("All recovery attempts for FDS 'device not exist' failed.")
                 raise exc
         else:
@@ -332,11 +345,13 @@ async def download_and_decrypt_sleep_details(
 
 
 def android_base64_urlsafe(value: str | bytes) -> bytes:
-    if isinstance(value, bytes):
-        value = value.decode("utf-8", "ignore")
-    value = value.strip().replace("\n", "").replace("\r", "")
-    value += "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode(value)
+    if isinstance(value, str):
+        text = value
+    else:
+        text = bytes(value).decode("utf-8", "ignore")
+    text = text.strip().replace("\n", "").replace("\r", "")
+    text += "=" * (-len(text) % 4)
+    return base64.urlsafe_b64decode(text)
 
 
 def decompress_or_raw_fds_content(content: bytes, log_fn: Callable[[str], object] = print) -> bytes:
