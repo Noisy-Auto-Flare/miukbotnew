@@ -339,6 +339,9 @@ async def run_sync_for_user(
 
 async def _sync_fds_segment(cursor, counters: dict[str, int], client, relative_uid: int, segment) -> None:
     try:
+        client_state = getattr(client, "__dict__", None)
+        if isinstance(client_state, dict) and client_state.get("_fds_device_missing", False):
+            return
         log(f"Requesting FDS sleep details for wake_up_time {segment.wake_up_time} ({format_epoch(segment.wake_up_time)})...")
         bin_data = await download_and_decrypt_sleep_details(
             client,

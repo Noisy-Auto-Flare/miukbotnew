@@ -2,12 +2,13 @@
 # Copyright (C) 2026 Alexey
 
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from miband_tracker.config import Settings
 from miband_tracker.storage import init_health_db, sqlite_conn
-from miband_tracker.sync import _sync_workouts, run_sync
+from miband_tracker.sync import _sync_fds_segment, _sync_workouts, run_sync
 
 
 @pytest.mark.asyncio
@@ -78,3 +79,23 @@ async def test_sync_workouts_inserts_watermark_records(tmp_path: Path) -> None:
     assert row["duration_sec"] == 142
     assert row["avg_hr"] == 95
     assert row["watermark"] == 12345
+
+
+@pytest.mark.asyncio
+async def test_sync_fds_segment_skips_when_session_marked_missing() -> None:
+    client = MagicMock()
+    client._fds_device_missing = True
+
+    segment = MagicMock()
+    segment.wake_up_time = 1777351560
+    segment.timezone = 60
+
+    cursor = MagicMock()
+    counters = {"heart_rate": 0, "blood_oxygen": 0}
+
+    await _sync_fds_segment(cursor, counters, client, 4231159447, segment)
+
+    cursor.execute.assert_not_called()
+
+    if isinstance(client.__dict__.get("_request"), AsyncMock):
+        client._request.assert_not_called()

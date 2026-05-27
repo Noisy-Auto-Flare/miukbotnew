@@ -96,6 +96,47 @@ class TestGetRelatives:
 # endregion
 
 
+# region 设备列表
+class TestGetDevices:
+    async def test_get_devices_parses_direct_list(self, mock_auth: Any) -> None:
+        client = _make_client(mock_auth)
+        client._request = AsyncMock(
+            return_value={
+                "code": 0,
+                "result": [
+                    {"did": "123", "name": "Band", "model": "miband", "mac": "AA:BB", "status": 1}
+                ],
+            }
+        )
+
+        devices = await client.get_devices()
+
+        assert len(devices) == 1
+        assert devices[0].did == "123"
+        assert devices[0].name == "Band"
+
+    async def test_get_devices_parses_nested_result(self, mock_auth: Any) -> None:
+        client = _make_client(mock_auth)
+        client._request = AsyncMock(
+            return_value={
+                "code": 0,
+                "result": {
+                    "data": {
+                        "devices": [
+                            {"did": "456", "name": "Smart Band 10", "model": "miband10", "status": 1}
+                        ]
+                    }
+                },
+            }
+        )
+
+        devices = await client.get_devices()
+
+        assert len(devices) == 1
+        assert devices[0].did == "456"
+        assert devices[0].name == "Smart Band 10"
+
+
 # region 查找亲友
 class TestFindRelative:
     async def test_find_by_uid(self, mock_auth: Any) -> None:

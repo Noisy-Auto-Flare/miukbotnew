@@ -11,6 +11,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, TypeVar
 
+from loguru import logger
+
 from mi_fitness.auth import XiaomiAuth
 from mi_fitness.client import data as _data
 from mi_fitness.client import messages as _msg
@@ -242,9 +244,42 @@ class MiHealthClient:
             },
         )
         result = resp.get("result", [])
-        if not isinstance(result, list):
+        devices = self._extract_device_items(result)
+        if not devices:
+            logger.debug(
+                "bind/devices returned no device items, result_type={}, result_keys={}",
+                type(result).__name__,
+                sorted(result.keys()) if isinstance(result, dict) else [],
+            )
             return []
-        return [Device.model_validate(d) for d in result if isinstance(d, dict)]
+        return [Device.model_validate(d) for d in devices]
+
+    @staticmethod
+    def _extract_device_items(result: Any) -> list[dict[str, Any]]:
+        """兼容 eco api_proxy 不同 result 结构中的设备列表。"""
+        if isinstance(result, list):
+            return [item for item in result if isinstance(item, dict)]
+
+        if not isinstance(result, dict):
+            return []
+
+        candidate_keys = ("devices", "device_list", "list", "items", "rows", "data")
+        for key in candidate_keys:
+            value = result.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+            if isinstance(value, dict):
+                nested = MiHealthClient._extract_device_items(value)
+                if nested:
+                    return nested
+
+        for value in result.values():
+            if isinstance(value, dict):
+                nested = MiHealthClient._extract_device_items(value)
+                if nested:
+                    return nested
+
+        return []
 
     # endregion
 
